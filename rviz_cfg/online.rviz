@@ -88,7 +88,7 @@ Visualization Manager:
       Marker Topic: /planner_normal
       Name: Marker
       Namespaces:
-        {}
+        { }
       Queue Size: 1000
       Value: false
     - Alpha: 0.800000011920929
@@ -180,7 +180,7 @@ Visualization Manager:
       Marker Topic: /descriptor_line
       Name: MarkerArray
       Namespaces:
-        {}
+        { }
       Queue Size: 100
       Value: true
     - Alpha: 0.5
@@ -251,7 +251,7 @@ Visualization Manager:
       Marker Topic: /loop_closure_constraints
       Name: MarkerArray
       Namespaces:
-        {}
+        { }
       Queue Size: 100
       Value: false
     - Alpha: 1
