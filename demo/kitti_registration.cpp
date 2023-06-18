@@ -3,12 +3,61 @@
 //
 #include "include/STDesc.h"
 #include <nav_msgs/Odometry.h>
+#include <ros/ros.h>
+#include <pcl/common/transforms.h>
+#include <pcl_conversions/pcl_conversions.h>
 
-pcl::PointCloud<pcl::PointXYZI>::Ptr read_lidar_data(const std::string lidar_data_path, ConfigSetting config_setting);
-void LoadKittiPose(std::string pose_file, std::string calib_file, std::vector<Eigen::Matrix4d>& poses);
+pcl::PointCloud<pcl::PointXYZI>::Ptr read_lidar_data(const std::string &lidar_data_path, ConfigSetting config_setting);
+
+void LoadKittiPose(const std::string &pose_file, const std::string &calib_file, std::vector<Eigen::Matrix4d> &poses);
+
 ConfigSetting GetKittiConfig();
 
+Eigen::Isometry3d
+estimateTF(pcl::PointCloud<pcl::PointXYZI>::Ptr ptr_src, pcl::PointCloud<pcl::PointXYZI>::Ptr ptr_tgt,
+           ConfigSetting &config_setting) {
+    Eigen::Isometry3d T_ts; // T_tgt = T_est * T_src, T_est = T_ts
+    T_ts.setIdentity();
+
+    std::unique_ptr<STDescManager> std_manager(new STDescManager(config_setting));
+
+    std::vector<STDesc> stds_vec_src, stds_vec_tgt;
+
+    std_manager->GenerateSTDescs(ptr_tgt, stds_vec_tgt);
+    std_manager->AddSTDescs(stds_vec_tgt);
+    std_manager->key_cloud_vec_.push_back(ptr_tgt);
+
+    std_manager->GenerateSTDescs(ptr_src, stds_vec_src);
+
+    std::pair<int, double> search_result(-1, 0);
+    std::pair<Eigen::Vector3d, Eigen::Matrix3d> loop_transform;
+    loop_transform.first << 0, 0, 0;
+    loop_transform.second = Eigen::Matrix3d::Identity();
+    std::vector<std::pair<STDesc, STDesc>> loop_std_pair;  // For visualization
+
+    std_manager->SearchLoop(stds_vec_src, search_result, loop_transform, loop_std_pair);
+
+    printf("#loop_std_pair: %lu\n", loop_std_pair.size());
+
+    if (search_result.first >= 0) {
+        std::cout << "[Loop Detection] triggle loop: , score:" << search_result.second << std::endl;
+        T_ts.rotate(Eigen::Quaterniond(loop_transform.second));
+        T_ts.pretranslate(loop_transform.first);
+    } else {
+        printf("No loops detected.\n");
+    }
+    return T_ts;
+
+}
+
 int main(int argc, char **argv) {
+    ros::init(argc, argv, "rosbag_play_test");
+    ros::NodeHandle nh;
+
+    // rosparam load $(rospack find std_detector)/config/config_kitti_reg.yaml
+    ConfigSetting config_setting;
+    read_parameters(nh, config_setting);
+    printf("ds_size: %f\n", config_setting.ds_size_);
 
     std::string lidar_path = "/media/qzj/Document/datasets/KITTI/odometry/data_odometry_velodyne/dataset/sequences/00/velodyne/";
     std::string pose_path = "/media/qzj/Document/datasets/KITTI/odometry/data_odometry_velodyne/dataset/sequences/00/poses.txt";
@@ -16,6 +65,8 @@ int main(int argc, char **argv) {
     int src_idx = 0, dst_idx = 4405;
     ConfigSetting config_setting = GetKittiConfig();
 
+//    int src_idx = 4405, dst_idx = 0;
+    int src_idx = 7, dst_idx = 0;
     std::stringstream lidar_data_path;
     lidar_data_path << lidar_path << std::setfill('0') << std::setw(6) << src_idx << ".bin";
     pcl::PointCloud<pcl::PointXYZI>::Ptr src_data = read_lidar_data(lidar_data_path.str(), config_setting);
@@ -27,17 +78,51 @@ int main(int argc, char **argv) {
     LoadKittiPose(pose_path, calib_path, poses);
     std::cout << "Sucessfully load pose with number: " << poses.size() << std::endl;
 
-    Eigen::Matrix4d tf = poses[dst_idx].inverse() * poses[src_idx];
+    Eigen::Matrix4d T_ts_gt = poses[dst_idx].inverse() * poses[src_idx];
 
-    STDescManager *std_manager = new STDescManager(config_setting);
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::vector<STDesc> stds_vec;
-    std_manager->GenerateSTDescs(src_data, stds_vec);
+    std::cout << "T_src:\n" << poses[src_idx] << std::endl;
+    std::cout << "T_tgt:\n" << poses[dst_idx] << std::endl;
+
+    std::cout << "True tf:\n" << T_ts_gt.matrix() << std::endl;
+    Eigen::Isometry3d Tf_est = estimateTF(src_data, dst_data, config_setting);
+    std::cout << "Est tf:\n" << Tf_est.matrix() << std::endl;
+    std::cout << "Est error:\n" << T_ts_gt * (Tf_est.matrix().inverse()) << std::endl;
+
+    // a. The pc aligned with GT transform in tgt/dst frame:
+//    pcl::transformPointCloud(*src_data, *src_data, T_ts_gt.cast<float>());
+
+    // b. The pc aligned with estimated transform.
+    pcl::transformPointCloud(*src_data, *src_data, Tf_est.cast<float>());
+
+    ros::Publisher pub_src = nh.advertise<sensor_msgs::PointCloud2>("/kitti_reg_src_tf", 1000);
+    ros::Publisher pub_tgt = nh.advertise<sensor_msgs::PointCloud2>("/kitti_reg_tgt", 1000);
+    ros::Publisher pubSTD = nh.advertise<visualization_msgs::MarkerArray>("descriptor_line", 10);
+    sensor_msgs::PointCloud2 kitti_reg_src_tf, kitti_reg_tgt;
+
+    pcl::toROSMsg(*src_data, kitti_reg_src_tf);
+    pcl::toROSMsg(*dst_data, kitti_reg_tgt);
+    kitti_reg_src_tf.header.frame_id = "world";
+    kitti_reg_tgt.header.frame_id = "world";
+
+    ros::Rate rate(1);
+    int cnt = 0;
+
+    // rviz -d $(rospack find std_detector)/rviz_cfg/viz_kitti_reg.rviz
+    while (ros::ok()) {
+        printf("Publish %d\n", cnt++);
+        kitti_reg_src_tf.header.stamp = ros::Time::now();
+        kitti_reg_tgt.header.stamp = ros::Time::now();
+        pub_src.publish(kitti_reg_src_tf);
+        pub_tgt.publish(kitti_reg_tgt);
+//        publish_std_pairs(loop_std_pair, pubSTD);
+        rate.sleep();
+    }
 
 
+    return 0;
 }
 
-ConfigSetting GetKittiConfig(){
+ConfigSetting GetKittiConfig() {
     ConfigSetting config_setting;
 
     config_setting.ds_size_ = 0.25;
@@ -70,7 +155,7 @@ ConfigSetting GetKittiConfig(){
     return config_setting;
 }
 
-Eigen::Matrix4d GetTr(const std::string& calib_file) {
+Eigen::Matrix4d GetTr(const std::string &calib_file) {
     std::fstream f;
     f.open(calib_file, std::ios::in);
     if (!f.is_open()) {
@@ -93,7 +178,7 @@ Eigen::Matrix4d GetTr(const std::string& calib_file) {
     return Tr;
 }
 
-void LoadKittiPose(std::string pose_file, std::string calib_file, std::vector<Eigen::Matrix4d>& poses) {
+void LoadKittiPose(const std::string &pose_file, const std::string &calib_file, std::vector<Eigen::Matrix4d> &poses) {
     //    read kitti pose txt
     std::fstream f;
     f.open(pose_file, std::ios::in);
@@ -104,19 +189,21 @@ void LoadKittiPose(std::string pose_file, std::string calib_file, std::vector<Ei
     std::string line;
     while (std::getline(f, line)) {
         std::stringstream ss(line);
-        Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
+        Eigen::Matrix4d T_lcam0_lcam = Eigen::Matrix4d::Identity();
         for (int i = 0; i < 3; ++i) {
             for (int j = 0; j < 4; ++j) {
-                ss >> Twc(i, j);
+                ss >> T_lcam0_lcam(i, j);
             }
         }
-        Eigen::Matrix4d Twl = Twc * Tr;
+        // Tr is T_leftcam_velod_
+        // T_w_velod = np.linalg.inv(T_leftcam_velod_) @ tmp_T_lc0_lc @ T_leftcam_velod_
+        Eigen::Matrix4d Twl = Tr.inverse() * T_lcam0_lcam * Tr;
         poses.push_back(Twl);
     }
 }
 
 // Read KITTI data
-pcl::PointCloud<pcl::PointXYZI>::Ptr read_lidar_data(const std::string lidar_data_path, ConfigSetting config_setting) {
+pcl::PointCloud<pcl::PointXYZI>::Ptr read_lidar_data(const std::string &lidar_data_path, ConfigSetting config_setting) {
     std::ifstream lidar_data_file;
     lidar_data_file.open(lidar_data_path,
                          std::ifstream::in | std::ifstream::binary);

@@ -61,6 +61,16 @@ include_directories(
         ${OpenCV_INCLUDE_DIRS}
 )
 
+add_library(${PROJECT_NAME}ops
+        src/STDesc.cpp
+        )
+target_link_libraries(${PROJECT_NAME}ops
+        ${catkin_LIBRARIES}
+        ${PCL_LIBRARIES}
+        ${CERES_LIBRARIES}
+        ${OpenCV_LIBS}
+        )
+
 add_executable(place_recognition_kitti demo/place_recognition_kitti.cpp src/STDesc.cpp)
 target_link_libraries(place_recognition_kitti
         ${catkin_LIBRARIES}
@@ -91,9 +101,8 @@ target_link_libraries(online_demo
         ${CERES_LIBRARIES}
         gtsam)
 
-add_executable(kitti_registration demo/kitti_registration.cpp src/STDesc.cpp)
+add_executable(kitti_registration demo/kitti_registration.cpp)
 target_link_libraries(kitti_registration
+        ${PROJECT_NAME}ops
         ${catkin_LIBRARIES}
-        ${PCL_LIBRARIES}
-        ${OpenCV_LIBS}
-        ${CERES_LIBRARIES})
+        )

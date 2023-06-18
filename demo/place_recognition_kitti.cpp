@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
                 std_manager->SearchLoop(stds_vec, search_result, loop_transform,
                                         loop_std_pair);
             }
-            if (search_result.first > 0) {
+            if (search_result.first >= 0) {
                 std::cout << "[Loop Detection] triggle loop: " << keyCloudInd << "--"
                           << search_result.first << ", score:" << search_result.second
                           << std::endl;
