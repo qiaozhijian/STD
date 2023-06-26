@@ -6,12 +6,15 @@
 #include <ros/ros.h>
 #include <pcl/common/transforms.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include "include/config_handler.h"
+
+const std::string PROJ_DIR = std::string(PJSRCDIR);
 
 pcl::PointCloud<pcl::PointXYZI>::Ptr read_lidar_data(const std::string &lidar_data_path, ConfigSetting config_setting);
 
 void LoadKittiPose(const std::string &pose_file, const std::string &calib_file, std::vector<Eigen::Matrix4d> &poses);
 
-ConfigSetting GetKittiConfig();
+ConfigSetting loadConfig(const std::string &config_fpath);
 
 Eigen::Isometry3d
 estimateTF(pcl::PointCloud<pcl::PointXYZI>::Ptr ptr_src, pcl::PointCloud<pcl::PointXYZI>::Ptr ptr_tgt,
@@ -56,14 +59,15 @@ int main(int argc, char **argv) {
 
     // rosparam load $(rospack find std_detector)/config/config_kitti_reg.yaml
     ConfigSetting config_setting;
-    read_parameters(nh, config_setting);
+//    read_parameters(nh, config_setting);  // use ros api
+    const std::string config_path = PROJ_DIR + "/config/config_kitti_reg.yaml";
+    std::cout << config_path << std::endl;
+    config_setting = loadConfig(config_path);  // use ros api
     printf("ds_size: %f\n", config_setting.ds_size_);
 
     std::string lidar_path = "/media/qzj/Document/datasets/KITTI/odometry/data_odometry_velodyne/dataset/sequences/00/velodyne/";
     std::string pose_path = "/media/qzj/Document/datasets/KITTI/odometry/data_odometry_velodyne/dataset/sequences/00/poses.txt";
     std::string calib_path = "/media/qzj/Document/datasets/KITTI/odometry/data_odometry_velodyne/dataset/sequences/00/calib.txt";
-    int src_idx = 0, dst_idx = 4405;
-    ConfigSetting config_setting = GetKittiConfig();
 
 //    int src_idx = 4405, dst_idx = 0;
     int src_idx = 7, dst_idx = 0;
@@ -122,35 +126,40 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-ConfigSetting GetKittiConfig() {
+ConfigSetting loadConfig(const std::string &config_fpath) {
     ConfigSetting config_setting;
 
-    config_setting.ds_size_ = 0.25;
-    config_setting.maximum_corner_num_ = 100;
+    printf("Loading parameters...\n");
+    auto yl = yamlLoader(config_fpath);
 
-    config_setting.plane_detection_thre_ = 0.01;
-    config_setting.plane_merge_normal_thre_ = 0.2;
-    config_setting.voxel_size_ = 2.0;
-    config_setting.voxel_init_num_ = 10;
-    config_setting.proj_image_resolution_ = 0.5;
-    config_setting.proj_dis_min_ = 0;
-    config_setting.proj_dis_max_ = 5;
-    config_setting.corner_thre_ = 10;
+    yl.loadOneConfig({"ds_size"}, config_setting.ds_size_);
+    yl.loadOneConfig({"maximum_corner_num"}, config_setting.maximum_corner_num_);
 
-    config_setting.descriptor_near_num_ = 10;
-    config_setting.descriptor_min_len_ = 2;
-    config_setting.descriptor_max_len_ = 50;
-    config_setting.non_max_suppression_radius_ = 2;
-    config_setting.std_side_resolution_ = 0.2;
+    yl.loadOneConfig({"plane_detection_thre"}, config_setting.plane_detection_thre_);
+    yl.loadOneConfig({"plane_merge_normal_thre"}, config_setting.plane_merge_normal_thre_);
+    yl.loadOneConfig({"voxel_size"}, config_setting.voxel_size_);
+    yl.loadOneConfig({"voxel_init_num"}, config_setting.voxel_init_num_);
+    yl.loadOneConfig({"proj_image_resolution"}, config_setting.proj_image_resolution_);
+    yl.loadOneConfig({"proj_dis_min"}, config_setting.proj_dis_min_);
+    yl.loadOneConfig({"proj_dis_max"}, config_setting.proj_dis_max_);
+    yl.loadOneConfig({"corner_thre"}, config_setting.corner_thre_);
 
-    config_setting.skip_near_num_ = 50;
-    config_setting.candidate_num_ = 50;
-    config_setting.sub_frame_num_ = 10;
-    config_setting.vertex_diff_threshold_ = 0.5;
-    config_setting.rough_dis_threshold_ = 0.01;
-    config_setting.normal_threshold_ = 0.2;
-    config_setting.dis_threshold_ = 0.5;
-    config_setting.icp_threshold_ = 0.4;
+    yl.loadOneConfig({"descriptor_near_num"}, config_setting.descriptor_near_num_);
+    yl.loadOneConfig({"descriptor_min_len"}, config_setting.descriptor_min_len_);
+    yl.loadOneConfig({"descriptor_max_len"}, config_setting.descriptor_max_len_);
+    yl.loadOneConfig({"non_max_suppression_radius"}, config_setting.non_max_suppression_radius_);
+    yl.loadOneConfig({"std_side_resolution"}, config_setting.std_side_resolution_);
+
+    yl.loadOneConfig({"skip_near_num"}, config_setting.skip_near_num_);
+    yl.loadOneConfig({"candidate_num"}, config_setting.candidate_num_);
+    yl.loadOneConfig({"sub_frame_num"}, config_setting.sub_frame_num_);
+    yl.loadOneConfig({"vertex_diff_threshold"}, config_setting.vertex_diff_threshold_);
+    yl.loadOneConfig({"rough_dis_threshold"}, config_setting.rough_dis_threshold_);
+    yl.loadOneConfig({"normal_threshold"}, config_setting.normal_threshold_);
+    yl.loadOneConfig({"dis_threshold"}, config_setting.dis_threshold_);
+    yl.loadOneConfig({"icp_threshold"}, config_setting.icp_threshold_);
+
+    yl.close();
 
     return config_setting;
 }

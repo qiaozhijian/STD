@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(std_detector)
 
+add_definitions(-DPJSRCDIR=\"${PROJECT_SOURCE_DIR}/\")
+
 ## Compile as C++14
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -38,6 +40,7 @@ find_package(catkin REQUIRED COMPONENTS
         tf_conversions
         )
 
+find_package(OpenCV 4 REQUIRED)
 ## System dependencies are found with CMake's conventions
 find_package(OpenMP QUIET)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
@@ -105,4 +108,5 @@ add_executable(kitti_registration demo/kitti_registration.cpp)
 target_link_libraries(kitti_registration
         ${PROJECT_NAME}ops
         ${catkin_LIBRARIES}
+        ${OpenCV_LIBS}
         )
